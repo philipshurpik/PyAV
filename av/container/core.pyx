@@ -32,7 +32,8 @@ cdef object _cinit_sentinel = object()
 
 cdef class Container(object):
 
-    def __cinit__(self, sentinel, file_, format_name, options, container_options, stream_options, metadata_encoding, metadata_errors):
+    def __cinit__(self, sentinel, file_, format_name, options, container_options, stream_options,
+                  metadata_encoding, metadata_errors, hwaccel):
 
         if sentinel is not _cinit_sentinel:
             raise RuntimeError('cannot construct base Container')
@@ -55,6 +56,8 @@ cdef class Container(object):
 
         self.metadata_encoding = metadata_encoding
         self.metadata_errors = metadata_errors
+
+        self.hwaccel = hwaccel
 
         if format_name is not None:
             self.format = ContainerFormat(format_name)
@@ -185,7 +188,8 @@ cdef class Container(object):
 
 def open(file, mode=None, format=None, options=None,
          container_options=None, stream_options=None,
-         metadata_encoding=None, metadata_errors='strict'):
+         metadata_encoding=None, metadata_errors='strict',
+         hwaccel=None):
     """open(file, mode='r', format=None, options=None, metadata_encoding=None, metadata_errors='strict')
 
     Main entrypoint to opening files/streams.
@@ -201,6 +205,8 @@ def open(file, mode=None, format=None, options=None,
         reading on Python 2 (returning ``str`` instead of ``unicode``).
     :param str metadata_errors: Specifies how to handle encoding errors; behaves like
         ``str.encode`` parameter. Defaults to strict.
+    :param dict hwaccel: The desired device parameters to use for hardware acceleration
+        including device_type_name (e.x. cuda) and optional device (e.x. '/dev/dri/renderD128').
 
     For devices (via ``libavdevice``), pass the name of the device to ``format``,
     e.g.::
@@ -215,11 +221,15 @@ def open(file, mode=None, format=None, options=None,
     if mode is None:
         mode = 'r'
 
+    if hwaccel is not None:
+        hwaccel = dict(hwaccel)
+
     if mode.startswith('r'):
         return InputContainer(
             _cinit_sentinel, file, format, options,
             container_options, stream_options,
-            metadata_encoding, metadata_errors
+            metadata_encoding, metadata_errors,
+            hwaccel=hwaccel
         )
     if mode.startswith('w'):
         if stream_options:
@@ -227,6 +237,7 @@ def open(file, mode=None, format=None, options=None,
         return OutputContainer(
             _cinit_sentinel, file, format, options,
             container_options, stream_options,
-            metadata_encoding, metadata_errors
+            metadata_encoding, metadata_errors,
+            hwaccel=hwaccel
         )
     raise ValueError("mode must be 'r' or 'w'; got %r" % mode)
