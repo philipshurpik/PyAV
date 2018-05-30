@@ -30,6 +30,8 @@
 /ipch
 /msvc-projects
 /src
+/bin
+/shared
 
 # Testing.
 *.spyderproject

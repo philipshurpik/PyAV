@@ -17,12 +17,33 @@ if [[ -e "$PYAV_LIBRARY_PREFIX/bin/ffmpeg" ]]; then
     exit 0
 fi
 
+# Update submodules
+git submodule update --init --recursive
+
+# Build nasm
+cd $PYAV_ROOT/submodules/nasm
+sh autogen.sh
+./configure --prefix="$PYAV_ROOT/shared" --bindir="$PYAV_ROOT/bin"
+make -j16 nasm ndisasm
+# nasm makefile is dumb and tries to install .1 files that don't exist so just
+# create them if they don't exist
+touch nasm.1
+touch ndisasm.1
+make install nasm ndisasm
+
+# Make sure the newly built nasm is on the path
+PATH=$PYAV_ROOT/bin:$PATH
+
+# Build x264
+cd $PYAV_ROOT/submodules/x264
+./configure --prefix="$PYAV_ROOT/shared" --bindir="$PYAV_ROOT/bin" --enable-pic --enable-static
+make -j16
+make install
+
 # Nvidia build
 CONFFLAGS_NVIDIA=""
 if [[ -e /usr/local/cuda ]]; then
     # Get Nvidia headers for ffmpeg
-    git submodule init
-    git submodule update
     cd "$PYAV_ROOT/submodules/nv-codec-headers"
     make
     sudo make install
@@ -58,13 +79,15 @@ echo ./configure
 if [[ "$PYAV_LIBRARY_NAME" == ffmpeg ]]; then
     CONFFLAGS=--disable-stripping
 fi
+PKG_CONFIG_PATH="$PYAV_ROOT/shared/lib/pkgconfig:$PKG_CONFIG_PATH"
 ./configure \
-    --disable-static \
+    --enable-static \
     --enable-shared \
     --disable-doc \
-    --disable-optimizations \
-    --disable-mmx \
     --enable-debug=3 \
+    --enable-gpl \
+    --enable-libx264 \
+    --enable-gnutls \
     $CONFFLAGS_NVIDIA \
     $CONFFLAGS \
     --prefix="$PYAV_LIBRARY_PREFIX" \
