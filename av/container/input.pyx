@@ -11,6 +11,13 @@ from av.utils import AVError  # not cimport
 from av.dictionary import Dictionary
 
 
+cdef close_input(InputContainer self):
+    if self.input_was_opened:
+        with nogil:
+            lib.avformat_close_input(&self.ptr)
+        self.input_was_opened = False
+
+
 cdef class InputContainer(Container):
 
     def __cinit__(self, *args, **kwargs):
@@ -59,6 +66,9 @@ cdef class InputContainer(Container):
 
         self.metadata = avdict_to_dict(self.ptr.metadata, self.metadata_encoding, self.metadata_errors)
 
+    def __dealloc__(self):
+        close_input(self)
+
     property start_time:
         def __get__(self): return self.ptr.start_time
 
@@ -70,6 +80,9 @@ cdef class InputContainer(Container):
 
     property size:
         def __get__(self): return lib.avio_size(self.ptr.pb)
+
+    def close(self):
+        close_input(self)
 
     def demux(self, *args, **kwargs):
         """demux(streams=None, video=None, audio=None, subtitles=None, data=None)

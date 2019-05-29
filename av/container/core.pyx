@@ -32,8 +32,10 @@ cdef object _cinit_sentinel = object()
 
 cdef class Container(object):
 
-    def __cinit__(self, sentinel, file_, format_name, options, container_options, stream_options,
-                  metadata_encoding, metadata_errors, hwaccel):
+    def __cinit__(self, sentinel, file_, format_name, options,
+                  container_options, stream_options,
+                  metadata_encoding, metadata_errors,
+                  buffer_size, hwaccel):
 
         if sentinel is not _cinit_sentinel:
             raise RuntimeError('cannot construct base Container')
@@ -115,11 +117,10 @@ cdef class Container(object):
             self.pos_is_valid = True
 
             # This is effectively the maximum size of reads.
-            self.bufsize = 32 * 1024
-            self.buffer = <unsigned char*>lib.av_malloc(self.bufsize)
+            self.buffer = <unsigned char*>lib.av_malloc(buffer_size)
 
             self.iocontext = lib.avio_alloc_context(
-                self.buffer, self.bufsize,
+                self.buffer, buffer_size,
                 self.writeable,  # Writeable.
                 <void*>self,  # User data.
                 pyio_read,
@@ -129,7 +130,7 @@ cdef class Container(object):
 
             if seek_func:
                 self.iocontext.seekable = lib.AVIO_SEEKABLE_NORMAL
-            self.iocontext.max_packet_size = self.bufsize
+            self.iocontext.max_packet_size = buffer_size
             self.ptr.pb = self.iocontext
 
         cdef lib.AVInputFormat *ifmt
@@ -153,13 +154,7 @@ cdef class Container(object):
             self.format = build_container_format(self.ptr.iformat, self.ptr.oformat)
 
     def __dealloc__(self):
-
         with nogil:
-
-            # Let FFmpeg close input if it was fully opened.
-            if self.input_was_opened:
-                lib.avformat_close_input(&self.ptr)
-
             # FFmpeg will not release custom input, so it's up to us to free it.
             # Do not touch our original buffer as it may have been freed and replaced.
             if self.iocontext:
@@ -173,6 +168,12 @@ cdef class Container(object):
 
             # Finish releasing the whole structure.
             lib.avformat_free_context(self.ptr)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     def __repr__(self):
         return '<av.%s %r>' % (self.__class__.__name__, self.file or self.name)
@@ -189,12 +190,12 @@ cdef class Container(object):
 def open(file, mode=None, format=None, options=None,
          container_options=None, stream_options=None,
          metadata_encoding=None, metadata_errors='strict',
-         hwaccel=None):
+         buffer_size=32768, hwaccel=None):
     """open(file, mode='r', format=None, options=None, metadata_encoding=None, metadata_errors='strict')
 
     Main entrypoint to opening files/streams.
 
-    :param str file: The file to open.
+    :param str file: The file to open, which can be either a string or a file-like object.
     :param str mode: ``"r"`` for reading and ``"w"`` for writing.
     :param str format: Specific format to use. Defaults to autodect.
     :param dict options: Options to pass to the container and all streams.
@@ -205,6 +206,8 @@ def open(file, mode=None, format=None, options=None,
         reading on Python 2 (returning ``str`` instead of ``unicode``).
     :param str metadata_errors: Specifies how to handle encoding errors; behaves like
         ``str.encode`` parameter. Defaults to strict.
+    :param int buffer_size: Size of buffer for Python input/output operations in bytes.
+        Honored only when ``file`` is a file-like object. Defaults to 32768 (32k).
     :param dict hwaccel: The desired device parameters to use for hardware acceleration
         including device_type_name (e.x. cuda) and optional device (e.x. '/dev/dri/renderD128').
 
@@ -214,6 +217,8 @@ def open(file, mode=None, format=None, options=None,
         >>> # Open webcam on OS X.
         >>> av.open(format='avfoundation', file='0') # doctest: +SKIP
 
+    More information on using input and output devices is available on the
+    `FFmpeg website <https://www.ffmpeg.org/ffmpeg-devices.html>`_.
     """
 
     if mode is None:
@@ -229,7 +234,7 @@ def open(file, mode=None, format=None, options=None,
             _cinit_sentinel, file, format, options,
             container_options, stream_options,
             metadata_encoding, metadata_errors,
-            hwaccel=hwaccel
+            buffer_size, hwaccel=hwaccel
         )
     if mode.startswith('w'):
         if stream_options:
@@ -238,6 +243,6 @@ def open(file, mode=None, format=None, options=None,
             _cinit_sentinel, file, format, options,
             container_options, stream_options,
             metadata_encoding, metadata_errors,
-            hwaccel=hwaccel
+            buffer_size, hwaccel=hwaccel
         )
     raise ValueError("mode must be 'r' or 'w'; got %r" % mode)
